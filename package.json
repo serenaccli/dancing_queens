@@ -1,0 +1,10 @@
+{
+  "name": "dancing-queens",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Adaptive camera movement app for accessible dance play.",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check script.js"
+  }
+}

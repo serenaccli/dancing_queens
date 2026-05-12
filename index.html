@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dancing Queens</title>
+    <script>
+      if (!sessionStorage.getItem("dancingQueensIntroSeen") && !new URLSearchParams(location.search).has("enter")) {
+        location.replace("intro.html");
+      } else {
+        sessionStorage.setItem("dancingQueensIntroSeen", "yes");
+      }
+    </script>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="stage-panel" aria-label="Camera dance playground">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Every movement matters</p>
+            <h1>Dancing Queens</h1>
+          </div>
+          <div class="top-actions">
+            <a class="nav-link" href="intro.html">Why this exists</a>
+            <div class="session-pill" aria-live="polite">
+              <span id="cameraStatus">Camera ready</span>
+              <span class="pulse-dot" aria-hidden="true"></span>
+            </div>
+          </div>
+        </header>
+
+        <div class="camera-stage" id="stage" tabindex="0" aria-label="Camera dance stage. Start the camera, move any way you can, or press space to make sparkle effects.">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <canvas id="danceCanvas"></canvas>
+          <canvas id="motionCanvas" aria-hidden="true"></canvas>
+          <div class="camera-guide" id="cameraGuide" aria-hidden="true">
+            <div class="guide-frame">
+              <div class="setup-ghost" aria-hidden="true">
+                <span class="ghost-halo"></span>
+                <span class="ghost-head"></span>
+                <span class="ghost-neck"></span>
+                <span class="ghost-shoulders"></span>
+                <span class="ghost-torso"></span>
+                <span class="ghost-arm ghost-arm-left"></span>
+                <span class="ghost-arm ghost-arm-right"></span>
+                <span class="ghost-hand ghost-hand-left"></span>
+                <span class="ghost-hand ghost-hand-right"></span>
+                <span class="ghost-chair-seat"></span>
+                <span class="ghost-chair-back"></span>
+                <span class="ghost-wheel ghost-wheel-left"></span>
+                <span class="ghost-wheel ghost-wheel-right"></span>
+                <span class="ghost-floor"></span>
+              </div>
+              <span class="setup-zone setup-zone-head">Head here</span>
+              <span class="setup-zone setup-zone-hands">Hands or switch visible</span>
+              <span class="setup-zone setup-zone-chair">Chair / body space</span>
+            </div>
+            <div class="guide-copy">
+              <strong>Match the soft ghost shape</strong>
+              <span>Place the camera at eye level. Keep face, shoulders, hands or switch, and chair/body space inside the glowing frame.</span>
+              <div class="setup-checks" aria-hidden="true">
+                <span>Face centered</span>
+                <span>Hands visible</span>
+                <span>Room to move</span>
+              </div>
+            </div>
+          </div>
+          <div class="world-intro" id="worldIntro" aria-live="polite">
+            <span>Welcome, dancing queen</span>
+            <strong>Ready to enter your world of dance?</strong>
+          </div>
+          <div class="game-hud" aria-live="polite">
+            <span id="gameName">Gesture-to-Dance</span>
+            <strong id="levelLabel">Scene 1</strong>
+            <strong id="gameProgress">0 moments</strong>
+            <strong id="scoreLabel">0 light</strong>
+            <strong id="comboLabel">Flow 1x</strong>
+            <strong id="rankLabel">Ready</strong>
+            <strong id="timeLeftLabel">90s</strong>
+          </div>
+          <div class="stage-options" id="stageOptions">
+            <button class="stage-options-toggle" id="stageOptionsButton" type="button" aria-expanded="false" aria-controls="stageOptionsPanel">Options</button>
+            <div class="stage-options-panel" id="stageOptionsPanel" hidden>
+              <strong>Dance mode</strong>
+              <div class="stage-mode-grid" role="group" aria-label="Fullscreen dance mode">
+                <button class="is-active" type="button" data-stage-mode="standard">Full body</button>
+                <button type="button" data-stage-mode="oneArm">One-arm</button>
+                <button type="button" data-stage-mode="upperBody">Seated</button>
+              </div>
+              <label>
+                Motion level
+                <select id="stageMotionLevel">
+                  <option value="small">Small range</option>
+                  <option value="moderate" selected>Moderate</option>
+                  <option value="wide">Wide range</option>
+                </select>
+              </label>
+              <label>
+                Access
+                <select id="stageAccess">
+                  <option value="dwell" selected>Dwell</option>
+                  <option value="camera">Camera movement</option>
+                  <option value="switch">Switch / keyboard</option>
+                  <option value="assisted">Assisted</option>
+                </select>
+              </label>
+              <label>
+                Trigger sensitivity
+                <input id="stageSensitivityRange" type="range" min="1" max="10" value="4">
+              </label>
+              <label>
+                Target hold time
+                <input id="stageDwellRange" type="range" min="250" max="3000" step="250" value="1500">
+              </label>
+            </div>
+          </div>
+          <button class="stage-pause-button" id="stagePauseButton" type="button" aria-label="Pause dance" aria-pressed="false">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+          </button>
+          <div class="motion-route" id="motionRoute" aria-hidden="true">
+            <span class="route-dot route-dot-a"></span>
+            <span class="route-dot route-dot-b"></span>
+            <span class="route-dot route-dot-c"></span>
+            <strong id="routeLabel">Sweep this way</strong>
+          </div>
+          <div class="target-zone" id="targetZone" aria-hidden="true">
+            <span class="target-core"></span>
+            <strong>Hold here</strong>
+          </div>
+          <div class="detection-ring" id="detectionRing" aria-hidden="true">
+            <strong id="trackingLabel">Tracking hand</strong>
+          </div>
+          <div class="tracking-debug" id="trackingDebug" aria-live="polite">
+            <strong id="debugStatus">Tracker waiting</strong>
+            <span id="debugDetails">Start camera to see body landmarks.</span>
+          </div>
+          <div class="stage-copy">
+            <p id="effectLabel">Rainbow ribbons</p>
+            <strong id="movementLabel">Move in any way. The world will answer.</strong>
+          </div>
+        </div>
+
+        <div class="kid-controls" aria-label="Play controls">
+          <button class="rainbow-action main-flow-action" id="gameButton" type="button" aria-pressed="false">Start dance</button>
+          <button id="sparkleButton" type="button">Switch move</button>
+          <button id="soundButton" type="button" aria-pressed="true">Sound on</button>
+          <details class="setup-backup">
+            <summary>Manual setup</summary>
+            <div class="setup-backup-row">
+              <button class="secondary-flow-control" id="cameraButton" type="button">
+                <span aria-hidden="true">Cam</span>
+                <span>Start camera</span>
+              </button>
+              <button class="secondary-flow-control" id="calibrateButton" type="button">Calibrate</button>
+              <button class="secondary-flow-control" id="fullscreenButton" type="button" aria-pressed="false">Full screen</button>
+            </div>
+          </details>
+        </div>
+
+        <div class="coach-line" aria-live="polite">
+          <span>Dance guide</span>
+          <strong id="coachPrompt">There is no correct move here. A blink, a tap, a tilt, a sway, or a pause can become the dance.</strong>
+        </div>
+
+        <section class="insight-strip" aria-label="AI movement interpretation">
+          <div>
+            <p class="eyebrow">Adaptive dance mapper</p>
+            <strong id="aiAction">Waiting for movement</strong>
+          </div>
+          <div>
+            <span id="aiConfidence">0%</span>
+            <small>confidence</small>
+          </div>
+          <div>
+            <span id="sessionClock">00:00</span>
+            <small>session</small>
+          </div>
+          <div>
+            <span id="wellnessScore">0</span>
+            <small>confidence glow</small>
+          </div>
+        </section>
+      </section>
+
+      <aside class="control-panel" aria-label="Grown-up settings">
+        <div class="panel-heading">
+          <p class="eyebrow">Setup</p>
+          <h2>Choose what she needs</h2>
+        </div>
+
+        <form class="profile-form" id="profileForm">
+          <div class="field-group">
+            <label for="childName">Dancer name</label>
+            <input id="childName" name="childName" type="text" autocomplete="off" placeholder="Mia">
+          </div>
+
+          <div class="field-group">
+            <label for="conditionSelect">Main condition or support need</label>
+            <select id="conditionSelect" name="condition">
+              <option value="unspecified">Prefer not to say</option>
+              <option value="cerebral-palsy">Cerebral palsy</option>
+              <option value="muscular-dystrophy">Muscular dystrophy</option>
+              <option value="spinal-injury">Spinal injury</option>
+              <option value="autism">Autism / sensory needs</option>
+              <option value="developmental-delay">Developmental delay</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label for="conditionNotes">Specific notes for movement support</label>
+            <textarea id="conditionNotes" name="conditionNotes" rows="3" placeholder="Example: eye gaze only, avoid overhead reaches, right arm stronger, no left hand, prefers slow prompts"></textarea>
+          </div>
+
+          <div class="field-group">
+            <label for="mobilitySelect">Mobility profile</label>
+            <select id="mobilitySelect" name="mobility">
+              <option value="seated">Seated</option>
+              <option value="wheelchair">Wheelchair</option>
+              <option value="standing">Standing</option>
+              <option value="bed">Bed or reclined</option>
+              <option value="assisted">Assisted movement</option>
+            </select>
+          </div>
+
+          <div class="comfort-grid compact">
+            <span>Select any that apply</span>
+            <label><input name="supports" value="one-arm" type="checkbox"> One-arm friendly</label>
+            <label><input name="supports" value="head" type="checkbox"> Head movement</label>
+            <label><input name="supports" value="switch" type="checkbox"> Switch access</label>
+            <label><input name="supports" value="sensory-soft" type="checkbox"> Sensory soft</label>
+            <label><input name="supports" value="no-left-hand" type="checkbox"> Remove left hand</label>
+            <label><input name="supports" value="no-right-hand" type="checkbox"> Remove right hand</label>
+            <label><input name="supports" value="no-left-foot" type="checkbox"> Remove left foot</label>
+            <label><input name="supports" value="no-right-foot" type="checkbox"> Remove right foot</label>
+          </div>
+
+          <button class="save-button" type="submit">Save profile</button>
+        </form>
+
+        <section class="profile-modes" aria-label="Dancer interaction profiles">
+          <p class="eyebrow">Tap one requirement</p>
+          <div class="profile-mode-grid">
+            <button type="button" data-profile-preset="wheelchair">Wheelchair<br><span>arms + chair glide</span></button>
+            <button type="button" data-profile-preset="oneArm">One-arm<br><span>single-limb expression</span></button>
+            <button type="button" data-profile-preset="gaze">Eye gaze<br><span>dwell + head tilt</span></button>
+            <button type="button" data-profile-preset="assisted">Assisted<br><span>partner co-dance</span></button>
+            <button type="button" data-profile-preset="switch">Switch<br><span>one tap, full sparkle</span></button>
+            <button type="button" data-profile-preset="sensory">Sensory calm<br><span>soft low-stim world</span></button>
+          </div>
+        </section>
+
+        <div class="mode-grid mode-grid-large" role="group" aria-label="Movement mode">
+          <button class="is-active" type="button" data-mode="standard">Full body</button>
+          <button type="button" data-mode="oneArm">One-arm / limited hand</button>
+          <button type="button" data-mode="upperBody">Seated upper body</button>
+        </div>
+
+        <div class="field-group">
+          <label for="motionLevelSelect">Participant motion level</label>
+          <select id="motionLevelSelect">
+            <option value="small">Small range / low stamina</option>
+            <option value="moderate" selected>Moderate range</option>
+            <option value="wide">Wide range / high stamina</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="gameSelect">Experience mode</label>
+          <select id="gameSelect">
+            <option value="bloom">Gesture-to-Dance Mode</option>
+            <option value="freedom">Adaptive Choreography Mode</option>
+            <option value="follow">Mirror Mode</option>
+            <option value="paint">Music and Movement Play</option>
+          </select>
+        </div>
+
+        <div class="celebration-panel">
+          <p class="eyebrow">Celebration Mode</p>
+          <strong>You danced, and that was extraordinary.</strong>
+          <span>Confetti, star showers, light cascades, and applause visuals can be triggered at any time.</span>
+        </div>
+
+        <div class="field-group">
+          <label for="routineSelect">Movement focus</label>
+          <select id="routineSelect">
+            <option value="confidence">Confidence flow</option>
+            <option value="strength">Upper-body strength</option>
+            <option value="mobility">Mobility and range</option>
+            <option value="calm">Calm breath and regulation</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="timeLimitRange">Session duration</label>
+          <input id="timeLimitRange" type="range" min="30" max="180" step="30" value="90">
+        </div>
+
+        <div class="field-group">
+          <label for="accessSelect">Access method</label>
+          <select id="accessSelect">
+            <option value="dwell" selected>Dwell on target</option>
+            <option value="camera">Camera movement</option>
+            <option value="switch">Switch / keyboard</option>
+            <option value="assisted">Assisted play</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="handTrackerSelect">Tracking source</label>
+          <select id="handTrackerSelect">
+            <option value="pose" selected>Pose skeleton</option>
+            <option value="ai">AI fingers / open hand</option>
+            <option value="marker">Color marker / wristband</option>
+            <option value="motion">Motion fallback</option>
+          </select>
+        </div>
+
+        <div class="effect-grid" role="group" aria-label="Effect style">
+          <button class="effect-card is-active" type="button" data-effect="ribbons">Rainbow ribbons</button>
+          <button class="effect-card" type="button" data-effect="stars">Star shower</button>
+          <button class="effect-card" type="button" data-effect="bubbles">Soft bubbles</button>
+          <button class="effect-card" type="button" data-effect="flowers">Flower burst</button>
+        </div>
+
+        <div class="field-group trigger-sensitivity">
+          <label for="sensitivityRange">Target trigger sensitivity</label>
+          <input id="sensitivityRange" type="range" min="1" max="10" value="4">
+          <small>Lower is steadier. Higher triggers from smaller movements.</small>
+        </div>
+
+        <div class="field-group">
+          <label for="targetRange">Target size</label>
+          <input id="targetRange" type="range" min="1" max="10" value="7">
+        </div>
+
+        <div class="field-group">
+          <label for="dwellRange">Target hold time</label>
+          <input id="dwellRange" type="range" min="250" max="3000" step="250" value="1500">
+        </div>
+
+        <div class="field-group">
+          <label for="intensityRange">Sensory intensity</label>
+          <input id="intensityRange" type="range" min="1" max="10" value="6">
+        </div>
+
+        <div class="field-group">
+          <label for="tempoRange">Music preference and tempo</label>
+          <input id="tempoRange" type="range" min="60" max="140" value="96">
+        </div>
+
+        <div class="field-group">
+          <label for="musicPreference">Starting music style</label>
+          <select id="musicPreference">
+            <option>Dream pop</option>
+            <option>Ambient harp</option>
+            <option>Classical sparkle</option>
+            <option>Soft dance beat</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="avatarSelect">Avatar representation</label>
+          <select id="avatarSelect">
+            <option>Personal glowing character</option>
+            <option>Abstract light form</option>
+            <option>Ribbon silhouette</option>
+            <option>Caregiver pair avatar</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="colorThemeSelect">Color theme</label>
+          <select id="colorThemeSelect">
+            <option>Night</option>
+            <option>Blossom</option>
+            <option>Ocean</option>
+            <option>Gold halo</option>
+          </select>
+        </div>
+
+        <div class="swatches" aria-label="Favorite colors">
+          <button class="swatch is-active" style="--swatch: #ff6fae" type="button" data-color="#ff6fae" aria-label="Rose"></button>
+          <button class="swatch" style="--swatch: #45c4b0" type="button" data-color="#45c4b0" aria-label="Mint"></button>
+          <button class="swatch" style="--swatch: #f7c948" type="button" data-color="#f7c948" aria-label="Sunshine"></button>
+          <button class="swatch" style="--swatch: #7b8cff" type="button" data-color="#7b8cff" aria-label="Bluebell"></button>
+        </div>
+
+        <div class="movement-card" aria-live="polite">
+          <span>Movement found</span>
+          <div class="meter"><span id="movementMeter"></span></div>
+          <strong id="movementScore">0%</strong>
+        </div>
+
+        <div class="movement-card" aria-live="polite">
+          <span>Calibration</span>
+          <div class="meter calibration"><span id="calibrationMeter"></span></div>
+          <strong id="calibrationScore">Not set</strong>
+        </div>
+
+        <div class="wellness-grid" aria-label="Wellness tracking">
+          <div><span>Moves</span><strong id="freedomMoves">0</strong></div>
+          <div><span>Breaths</span><strong id="breathCount">0</strong></div>
+          <div><span>Flow</span><strong id="flowTime">0s</strong></div>
+        </div>
+
+        <div class="movement-plan" aria-label="Current movement invitation">
+          <p class="eyebrow">Current invitation</p>
+          <strong id="moveName">Find your starting pose</strong>
+          <span id="movePurpose">The app will invite movement that supports confidence, mobility, and calm.</span>
+        </div>
+
+        <div class="session-card">
+          <div>
+            <span>Today</span>
+            <strong id="sessionSummary">No saved sessions yet</strong>
+          </div>
+          <button id="startSessionButton" type="button">Start session</button>
+        </div>
+
+        <div class="history-list" id="historyList" aria-label="Recent sessions"></div>
+
+        <div class="comfort-grid">
+          <label><input id="reducedToggle" type="checkbox"> Low motion</label>
+          <label><input id="mirrorToggle" type="checkbox" checked> Mirror video</label>
+          <label><input id="celebrateToggle" type="checkbox" checked> Celebration visuals</label>
+          <label><input id="coDanceToggle" type="checkbox"> Caregiver co-dance</label>
+        </div>
+      </aside>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
