@@ -2023,7 +2023,9 @@ async function mapMovement(force = false, targetHit = false) {
     });
 
     aiAction.textContent = result.action;
-    aiConfidence.textContent = `${Math.round(result.confidence * 100)}%`;
+    aiConfidence.textContent = result.model
+      ? `${Math.round(result.confidence * 100)}% ML`
+      : `${Math.round(result.confidence * 100)}%`;
     result.wellness = moveForEvent.wellness;
     if (result.effect && result.confidence > 0.35) setEffect(result.effect, false);
     if (celebrateToggle.checked) movementLabel.textContent = result.praise;

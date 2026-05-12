@@ -109,7 +109,121 @@ function mobilityDefaults(profile = {}) {
   return settings;
 }
 
-function mapMovement(features = {}, profile = {}) {
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+function oneHot(value, options) {
+  return options.map((option) => value === option ? 1 : 0);
+}
+
+function movementVector(features = {}, profile = {}) {
+  const mode = features.mode || mobilityDefaults(profile).mode;
+  const access = features.access || mobilityDefaults(profile).access;
+  const zone = String(features.zone || "middle-center");
+  const supports = profile.supports || [];
+  return [
+    clamp01(features.level),
+    clamp01(features.x ?? 0.5),
+    clamp01(features.y ?? 0.5),
+    clamp01((Number(features.velocity) || 0) * 18),
+    clamp01((Number(features.calibratedNoise) || 0.06) / 0.28),
+    zone.startsWith("high") ? 1 : 0,
+    zone.startsWith("middle") ? 1 : 0,
+    zone.startsWith("low") ? 1 : 0,
+    zone.endsWith("left") ? 1 : 0,
+    zone.endsWith("center") ? 1 : 0,
+    zone.endsWith("right") ? 1 : 0,
+    ...oneHot(mode, ["keyboard", "headTracking", "handPath", "upperBody", "oneArm"]),
+    ...oneHot(access, ["switch", "dwell", "camera", "assisted"]),
+    supports.includes("head") ? 1 : 0,
+    supports.includes("one-arm") ? 1 : 0,
+    supports.includes("switch") ? 1 : 0,
+    supports.includes("sensory-soft") ? 1 : 0,
+    features.targetHit ? 1 : 0
+  ];
+}
+
+const actionMeta = {
+  "calm bloom collected": { effect: "flowers", praise: "Your breath made the bloom open." },
+  "movement bloom collected": { effect: "flowers", praise: "Your movement opened the bloom." },
+  "keyboard path step": { effect: "stars", praise: "Beautiful tap." },
+  "tiny head shimmer": { effect: "bubbles", praise: "Tiny head movement counts." },
+  "tiny shimmer": { effect: "bubbles", praise: "Tiny moves count." },
+  "head tilt halo": { effect: "stars", praise: "That head move made magic." },
+  "chair glide wave": { effect: "ribbons", praise: "Your glide filled the room." },
+  "hand path sweep": { effect: "ribbons", praise: "That hand move is dancing." },
+  "big queen burst": { effect: "flowers", praise: "Yes, queen. Keep glowing." },
+  "gentle glow": { effect: "bubbles", praise: "I see your movement." }
+};
+
+function seededMlModel() {
+  const seeds = [
+    ["gentle glow", { level: 0.02, x: 0.5, y: 0.5, velocity: 0.001, zone: "middle-center" }],
+    ["tiny shimmer", { level: 0.035, x: 0.52, y: 0.5, velocity: 0.002, zone: "middle-center" }],
+    ["tiny head shimmer", { level: 0.035, x: 0.5, y: 0.24, velocity: 0.002, zone: "high-center", mode: "headTracking" }],
+    ["head tilt halo", { level: 0.16, x: 0.5, y: 0.22, velocity: 0.012, zone: "high-center", mode: "headTracking" }],
+    ["chair glide wave", { level: 0.2, x: 0.5, y: 0.76, velocity: 0.012, zone: "low-center" }],
+    ["hand path sweep", { level: 0.22, x: 0.78, y: 0.45, velocity: 0.018, zone: "middle-right", mode: "handPath" }],
+    ["keyboard path step", { level: 0.4, x: 0.5, y: 0.62, velocity: 0.01, zone: "keyboard", mode: "keyboard", access: "switch" }],
+    ["big queen burst", { level: 0.72, x: 0.5, y: 0.46, velocity: 0.04, zone: "middle-center" }],
+    ["movement bloom collected", { level: 0.45, x: 0.5, y: 0.46, velocity: 0.02, zone: "middle-center", targetHit: true }],
+    ["calm bloom collected", { level: 0.18, x: 0.5, y: 0.5, velocity: 0.004, zone: "middle-center", targetHit: true, wellness: "calm" }]
+  ];
+  const labels = {};
+  seeds.forEach(([label, sample]) => {
+    labels[label] = { count: 1, centroid: movementVector(sample, {}) };
+  });
+  return { version: 1, labels, observations: seeds.length, updatedAt: new Date().toISOString() };
+}
+
+function getMlModel(store) {
+  if (!store.mlModel || store.mlModel.version !== 1 || !store.mlModel.labels) {
+    store.mlModel = seededMlModel();
+  }
+  return store.mlModel;
+}
+
+function distance(a, b) {
+  let total = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    const diff = (a[index] || 0) - (b[index] || 0);
+    total += diff * diff;
+  }
+  return Math.sqrt(total / a.length);
+}
+
+function predictMovement(model, vector) {
+  let best = null;
+  let second = null;
+  Object.entries(model.labels).forEach(([label, entry]) => {
+    const score = distance(vector, entry.centroid);
+    if (!best || score < best.score) {
+      second = best;
+      best = { label, score, count: entry.count || 1 };
+    } else if (!second || score < second.score) {
+      second = { label, score, count: entry.count || 1 };
+    }
+  });
+  const margin = second ? Math.max(0, second.score - best.score) : 0.2;
+  const confidence = Math.max(0.12, Math.min(0.96, 1 - best.score * 1.45 + margin * 0.65));
+  return { ...best, confidence };
+}
+
+function learnMovement(model, label, vector, strength = 1) {
+  if (!model.labels[label]) {
+    model.labels[label] = { count: 0, centroid: vector.slice() };
+  }
+  const entry = model.labels[label];
+  const count = Number(entry.count || 0);
+  const rate = Math.min(0.35, strength / (count + strength + 6));
+  entry.centroid = entry.centroid.map((value, index) => value * (1 - rate) + vector[index] * rate);
+  entry.count = count + strength;
+  model.observations = Number(model.observations || 0) + strength;
+  model.updatedAt = new Date().toISOString();
+}
+
+function ruleMapMovement(features = {}, profile = {}) {
   const level = Number(features.level || 0);
   const x = Number(features.x || 0.5);
   const y = Number(features.y || 0.5);
@@ -167,6 +281,38 @@ function mapMovement(features = {}, profile = {}) {
   };
 }
 
+function mapMovement(features = {}, profile = {}, store = null) {
+  const rule = ruleMapMovement(features, profile);
+  if (!store) return rule;
+
+  const model = getMlModel(store);
+  const vector = movementVector(features, profile);
+  const prediction = predictMovement(model, vector);
+  const usePrediction = !features.targetHit && prediction.confidence > 0.56;
+  const action = usePrediction ? prediction.label : rule.action;
+  const meta = actionMeta[action] || actionMeta[rule.action] || actionMeta["gentle glow"];
+  const confidence = usePrediction
+    ? Math.max(rule.confidence * 0.45, prediction.confidence)
+    : rule.confidence;
+
+  const teachingLabel = features.targetHit ? rule.action : action;
+  learnMovement(model, teachingLabel, vector, features.targetHit ? 2.5 : 0.7);
+
+  return {
+    action,
+    effect: meta.effect || rule.effect,
+    confidence: Number(Math.min(0.98, confidence).toFixed(2)),
+    praise: meta.praise || rule.praise,
+    settings: mobilityDefaults(profile),
+    model: {
+      type: "online-nearest-centroid",
+      prediction: prediction.label,
+      confidence: Number(prediction.confidence.toFixed(2)),
+      observations: Math.round(model.observations || 0)
+    }
+  };
+}
+
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const store = readStore();
@@ -213,7 +359,9 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && url.pathname === "/api/ai/map-movement") {
     const body = await readBody(req);
-    return sendJson(res, 200, mapMovement(body.features, store.profile || {}));
+    const mapped = mapMovement(body.features, store.profile || {}, store);
+    writeStore(store);
+    return sendJson(res, 200, mapped);
   }
 
   if (req.method === "POST" && url.pathname === "/api/sessions/start") {
